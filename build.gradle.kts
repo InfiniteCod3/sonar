@@ -1,107 +1,93 @@
-buildscript {
-  dependencies {
-    classpath("gradle.plugin.io.toolebox:gradle-git-versioner:1.6.7")
-  }
-}
+import net.kyori.indra.git.IndraGitExtension
 
 plugins {
-  id("java")
-  id("com.github.johnrengelman.shadow") version "8.1.1"
-  id("io.toolebox.git-versioner") version "1.6.7"
-}
-
-apply(plugin = "io.toolebox.git-versioner")
-
-versioner {
-  pattern {
-    pattern = "$version-%h-%c-%b"
-  }
+  java
+  alias(libs.plugins.shadow)
+  alias(libs.plugins.indra.git) apply true
 }
 
 allprojects {
   repositories {
-    mavenCentral() // Lombok
-    maven(url = "https://jitpack.io") // simple-yaml
+    mavenCentral()
     maven(url = "https://repo.jonesdev.xyz/releases/") // Bungee & Velocity proxy module
+    maven(url = "https://s01.oss.sonatype.org/content/repositories/snapshots/") // libby
   }
 
   apply(plugin = "java")
-  apply(plugin = "com.github.johnrengelman.shadow")
+  apply(plugin = "io.github.goooler.shadow")
 
   dependencies {
-    compileOnly("org.projectlombok:lombok:1.18.30")
-    annotationProcessor("org.projectlombok:lombok:1.18.30")
+    compileOnly(rootProject.libs.lombok)
+    annotationProcessor(rootProject.libs.lombok)
 
-    testCompileOnly("org.projectlombok:lombok:1.18.30")
-    testAnnotationProcessor("org.projectlombok:lombok:1.18.30")
+    testCompileOnly(rootProject.libs.lombok)
+    testAnnotationProcessor(rootProject.libs.lombok)
 
-    val adventureVersion = "4.15.0"
-
-    // adventure
-    implementation("net.kyori:adventure-text-minimessage:$adventureVersion")
-    implementation("net.kyori:adventure-text-serializer-gson:$adventureVersion")
-    // adventure nbt
-    implementation("net.kyori:adventure-nbt:$adventureVersion")
-
-    implementation("com.j256.ormlite:ormlite-jdbc:6.1") // ORM
-    implementation("xyz.jonesdev:cappuccino:0.1.6-SNAPSHOT") // expiring cache
-
-    compileOnly("io.netty:netty-all:4.1.104.Final") // netty
+    compileOnly(rootProject.libs.adventure.minimessage)
+    compileOnly(rootProject.libs.adventure.serializer)
+    compileOnly(rootProject.libs.ormlite)
+    compileOnly(rootProject.libs.caffeine)
+    compileOnly(rootProject.libs.netty)
+    compileOnly(rootProject.libs.libby.core)
   }
-}
 
-dependencies {
-  sequenceOf("api", "bukkit", "bungee", "common", "velocity").forEach {
-    // We want the jar to actually contain our modules
-    implementation(project(":$it"))
+  tasks {
+    shadowJar {
+      // Set the file name of the shadowed jar
+      archiveFileName.set("${rootProject.name}-${project.name.replaceFirstChar { it.uppercase() }}.jar")
+
+      // Remove file timestamps
+      isPreserveFileTimestamps = false
+
+      // Relocate libraries
+      relocate("org.bstats", "xyz.jonesdev.sonar.libs.bstats")
+      relocate("com.alessiodp.libby", "xyz.jonesdev.sonar.libs.libby")
+      relocate("com.simpleyaml", "xyz.jonesdev.sonar.libs.yaml")
+      relocate("com.google.gson", "xyz.jonesdev.sonar.libs.gson")
+      relocate("com.j256.ormlite", "xyz.jonesdev.sonar.libs.ormlite")
+      relocate("com.github.benmanes.caffeine", "xyz.jonesdev.sonar.libs.caffeine")
+      relocate("com.mysql", "xyz.jonesdev.sonar.libs.mysql")
+      relocate("org.mariadb", "xyz.jonesdev.sonar.libs.mariadb")
+      relocate("xyz.jonesdev.capja", "xyz.jonesdev.sonar.libs.capja")
+      relocate("org.h2", "xyz.jonesdev.sonar.libs.h2")
+
+      // Exclude unnecessary metadata information
+      exclude("META-INF/*/**")
+
+      // Minimize shadowed jar file
+      minimize {
+        exclude(project(":api"))
+      }
+    }
+
+    compileJava {
+      options.encoding = "UTF-8"
+    }
+
+    jar {
+      manifest {
+        val indra = rootProject.extensions.getByType(IndraGitExtension::class.java)
+        val gitBranch = indra.branchName() ?: "unknown"
+        val gitCommit = indra.commit()?.name?.substring(0, 8) ?: "unknown"
+
+        // Set the implementation version, so we can create exact version
+        // information in-game and make it accessible to the user.
+        attributes["Implementation-Title"] = rootProject.name
+        attributes["Implementation-Version"] = rootProject.version
+        attributes["Implementation-Vendor"] = "Jones Development, Sonar Contributors"
+        // Include the Git branch and Git commit SHA
+        attributes["Git-Branch"] = gitBranch
+        attributes["Git-Commit"] = gitCommit
+      }
+    }
   }
 }
 
 tasks {
-  jar {
-    manifest {
-      // Set the implementation version, so we can create exact version
-      // information in-game and make it accessible to the user.
-      attributes["Implementation-Version"] = version
-      attributes["Implementation-Vendor"] = "Jones Development, Sonar Contributors"
-    }
-  }
-
-  shadowJar {
-    // Set the file name of the shadowed jar
-    archiveFileName.set("Sonar.jar")
-
-    // Remove file timestamps
-    isPreserveFileTimestamps = false
-
-    // bStats has to be relocated to the Sonar package otherwise it throws an exception
-    // https://github.com/Bastian/bstats-metrics/blob/master/base/src/main/java/org/bstats/MetricsBase.java#L251
-    relocate("org.bstats", "xyz.jonesdev.sonar.libs.bstats")
-
-    // https://github.com/jonesdevelopment/sonar/issues/46
-    // Relocate some packages, so we don't run into issues where we accidentally use Velocity's classes
-    relocate("org.simpleyaml", "xyz.jonesdev.sonar.libs.yaml")
-    relocate("com.google.gson", "xyz.jonesdev.sonar.libs.gson")
-    relocate("com.j256.ormlite", "xyz.jonesdev.sonar.libs.ormlite")
-    relocate("xyz.jonesdev.cappuccino", "xyz.jonesdev.sonar.libs.cappuccino")
-    relocate("net.kyori.examination", "xyz.jonesdev.sonar.libs.examination")
-    relocate("net.kyori.option", "xyz.jonesdev.sonar.libs.option")
-    // We have to be careful here, so we don't accidentally break adventure
-    relocate("net.kyori.adventure", "xyz.jonesdev.sonar.libs.adventure") {
-      exclude("net.kyori.adventure.text.**")
-      exclude("net.kyori.adventure.audience.**")
-    }
-
-    // Exclude unnecessary metadata information
-    exclude("META-INF/versions/**")
-  }
-
-  compileJava {
-    options.encoding = "UTF-8"
-  }
-
   // This is a small wrapper tasks to simplify the building process
   register("build-sonar") {
-    dependsOn(clean, shadowJar)
+    val subprojects = listOf("api", "common", "bukkit", "bungee", "velocity")
+    val buildTasks = subprojects.flatMap { listOf("$it:clean", "$it:shadowJar") }
+    dependsOn(buildTasks)
   }
 }

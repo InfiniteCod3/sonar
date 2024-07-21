@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,6 +39,7 @@ public final class DimensionRegistry {
   public final @NotNull CompoundBinaryTag CODEC_1_19_1;
   public final @NotNull CompoundBinaryTag CODEC_1_19_4;
   public final @NotNull CompoundBinaryTag CODEC_1_20;
+  public final @NotNull CompoundBinaryTag CODEC_1_21;
   public final @NotNull CompoundBinaryTag OLD_CODEC;
 
   static {
@@ -48,6 +49,7 @@ public final class DimensionRegistry {
     CODEC_1_19_1 = getCodec("codec_1_19_1.nbt");
     CODEC_1_19_4 = getCodec("codec_1_19_4.nbt");
     CODEC_1_20 = getCodec("codec_1_20.nbt");
+    CODEC_1_21 = getCodec("codec_1_21.nbt");
     OLD_CODEC = getCodec("codec_old.nbt");
 
     DEFAULT_DIMENSION_1_16 = getDimension(CODEC_1_16);
@@ -61,7 +63,7 @@ public final class DimensionRegistry {
   }
 
   private @NotNull CompoundBinaryTag getCodec(final @NotNull String fileName) {
-    try (final InputStream inputStream = Sonar.class.getResourceAsStream("/codecs/" + fileName)) {
+    try (final InputStream inputStream = Sonar.class.getResourceAsStream("/assets/codecs/" + fileName)) {
       return BinaryTagIO.reader().read(Objects.requireNonNull(inputStream), BinaryTagIO.Compression.GZIP);
     } catch (Throwable throwable) {
       Sonar.get().getLogger().error("Could not load mappings for {}: {}", fileName, throwable);

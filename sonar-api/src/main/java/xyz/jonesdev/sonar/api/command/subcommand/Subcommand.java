@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,82 +18,85 @@
 package xyz.jonesdev.sonar.api.command.subcommand;
 
 import lombok.Getter;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.jonesdev.sonar.api.Sonar;
 import xyz.jonesdev.sonar.api.command.CommandInvocation;
 import xyz.jonesdev.sonar.api.command.InvocationSource;
-import xyz.jonesdev.sonar.api.command.subcommand.argument.Argument;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
-import java.util.Arrays;
-import java.util.stream.Collectors;
+import java.util.Objects;
+import java.util.regex.Pattern;
 
 @Getter
 public abstract class Subcommand {
   private final @NotNull SubcommandInfo info;
   private final String permission, aliases, arguments;
 
-  protected static final Sonar SONAR = Sonar.get();
-
   public Subcommand() {
-    info = getClass().getAnnotation(SubcommandInfo.class);
-    permission = "sonar." + info.name();
-    aliases = info.aliases().length == 0 ? "No aliases."
+    this.info = Objects.requireNonNull(getClass().getAnnotation(SubcommandInfo.class));
+    this.permission = "sonar." + info.name();
+    this.aliases = info.aliases().length == 0 ? "No aliases."
       : String.join(", ", info.aliases());
-
-    arguments = info.arguments().length == 0 ? ""
-      : Arrays.stream(info.arguments())
-      .map(Argument::value)
-      .collect(Collectors.joining(", "));
+    this.arguments = info.arguments().length == 0 ? ""
+      : String.join(", ", info.arguments());
   }
 
-  protected static @Nullable InetAddress getInetAddressIfValid(final InvocationSource source, final String rawIP) {
-    final InetAddress inetAddress;
-    try {
-      inetAddress = InetAddress.getByName(rawIP);
+  private static final Pattern IPv4_REGEX = Pattern.compile("^((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\\b){4}$");
+  private static final Pattern IPv6_REGEX = Pattern.compile("(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))");
 
-      if (inetAddress.isAnyLocalAddress() || inetAddress.isLoopbackAddress()) {
-        source.sendMessage(SONAR.getConfig().getCommands().getIllegalIpAddress());
-        return null;
-      }
-    } catch (UnknownHostException exception) {
-      source.sendMessage(SONAR.getConfig().getCommands().getIncorrectIpAddress());
+  protected static @Nullable String validateIP(final InvocationSource source, final String raw) {
+    if (!IPv4_REGEX.matcher(raw).matches() && !IPv6_REGEX.matcher(raw).matches()) {
+      source.sendMessage(MiniMessage.miniMessage().deserialize(
+        Sonar.get().getConfig().getMessagesConfig().getString("commands.invalid-ip-address"),
+        Placeholder.component("prefix", Sonar.get().getConfig().getPrefix())));
       return null;
     }
-    return inetAddress;
+    return raw;
   }
 
-  protected final void incorrectUsage(final @NotNull InvocationSource sender) {
-    sender.sendMessage(SONAR.getConfig().getCommands().getIncorrectCommandUsage()
-      .replace("%usage%", info.name() + " (" + arguments + ")"));
+  protected final void incorrectUsage(final @NotNull InvocationSource invocationSource) {
+    incorrectUsage(invocationSource, info.name() + " (" + arguments + ")");
+  }
+
+  protected final void incorrectUsage(final @NotNull InvocationSource invocationSource, final String usage) {
+    invocationSource.sendMessage(MiniMessage.miniMessage().deserialize(
+      Sonar.get().getConfig().getMessagesConfig().getString("commands.incorrect-usage"),
+      Placeholder.component("prefix", Sonar.get().getConfig().getPrefix()),
+      Placeholder.unparsed("subcommand-usage", usage)));
   }
 
   public final void invoke(final @NotNull InvocationSource invocationSource, final String @NotNull [] arguments) {
     // Check if the subcommand can only be executed by players
-    if (getInfo().onlyPlayers() && !invocationSource.isPlayer()) {
-      invocationSource.sendMessage(Sonar.get().getConfig().getCommands().getPlayersOnly());
+    if (info.onlyPlayers() && !invocationSource.isPlayer()) {
+      invocationSource.sendMessage(MiniMessage.miniMessage().deserialize(
+        Sonar.get().getConfig().getMessagesConfig().getString("commands.player-only"),
+        Placeholder.component("prefix", Sonar.get().getConfig().getPrefix())));
       return;
     }
 
     // Check if the subcommand can only be executed though console
-    if (getInfo().onlyConsole() && invocationSource.isPlayer()) {
-      invocationSource.sendMessage(Sonar.get().getConfig().getCommands().getConsoleOnly());
+    if (info.onlyConsole() && invocationSource.isPlayer()) {
+      invocationSource.sendMessage(MiniMessage.miniMessage().deserialize(
+        Sonar.get().getConfig().getMessagesConfig().getString("commands.console-only"),
+        Placeholder.component("prefix", Sonar.get().getConfig().getPrefix())));
       return;
     }
-
-    final CommandInvocation commandInvocation = new CommandInvocation(invocationSource, this, arguments);
 
     // The subcommands has arguments which are not present in the executed command
-    if (getInfo().argumentsRequired() && getInfo().arguments().length > 0 && arguments.length <= 1) {
-      invocationSource.sendMessage(Sonar.get().getConfig().getCommands().getIncorrectCommandUsage()
-        .replace("%usage%", getInfo().name() + " (" + getArguments() + ")"));
+    if (info.argumentsRequired() && info.arguments().length > 0 && arguments.length <= 1) {
+      incorrectUsage(invocationSource);
       return;
     }
 
-    // Execute the sub command
-    execute(commandInvocation);
+    // Execute the sub command from the invocation source with the given arguments
+    execute(new CommandInvocation(invocationSource, arguments));
+  }
+
+  public final @NotNull String getDescription() {
+    final String path = String.format("commands.%s.description", info.name());
+    return Objects.requireNonNull(Sonar.get().getConfig().getMessagesConfig().getString(path));
   }
 
   protected abstract void execute(final @NotNull CommandInvocation invocation);

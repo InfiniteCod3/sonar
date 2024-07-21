@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,50 +26,33 @@ import java.net.InetAddress;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Getter
-@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
+@RequiredArgsConstructor(access = AccessLevel.PROTECTED)
 public final class FallbackQueue {
-  public static final FallbackQueue INSTANCE = new FallbackQueue();
-  private final Map<InetAddress, Runnable> queuedPlayers = new ConcurrentHashMap<>(16, 0.5f);
+  // Fixed thread pool executor for all new verifications
+  private static final int THREAD_POOL_SIZE = Math.min(0x7fff, Runtime.getRuntime().availableProcessors() * 2);
+  private static final ExecutorService QUEUE_EXECUTOR = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
 
-  /**
-   * @param inetAddress IP address of the player
-   * @param runnable    Queued action on the netty thread
-   * @see #remove
-   */
-  public void queue(final InetAddress inetAddress, final Runnable runnable) {
-    queuedPlayers.put(inetAddress, runnable);
-  }
-
-  /**
-   * @param inetAddress IP address of the player
-   */
-  public void remove(final InetAddress inetAddress) {
-    queuedPlayers.remove(inetAddress);
-  }
+  private final ConcurrentMap<InetAddress, Runnable> players = new ConcurrentHashMap<>(
+    128, 0.75f, Runtime.getRuntime().availableProcessors());
 
   public void poll() {
     final int maxQueuePolls = Sonar.get().getConfig().getQueue().getMaxQueuePolls();
     int index = 0;
 
-    // We need to be cautious here since we don't want any concurrency issues.
-    final Iterator<Map.Entry<InetAddress, Runnable>> iterator = queuedPlayers.entrySet().iterator();
-    while (iterator.hasNext()) {
-      // Break if we reached our maximum entries
-      if (++index > maxQueuePolls) {
-        break;
-      }
+    // Iterate through the map and process up to maxQueuePolls entries
+    // We need to be cautious here since we don't want any concurrency issues
+    final Iterator<Map.Entry<InetAddress, Runnable>> iterator = players.entrySet().iterator();
+    while (iterator.hasNext() && index++ < maxQueuePolls) {
       // Run the cached runnable
       final Map.Entry<InetAddress, Runnable> entry = iterator.next();
-      entry.getValue().run();
-      // Remove runnable from iterator
+      QUEUE_EXECUTOR.execute(entry.getValue());
+      // Remove runnable from the map
       iterator.remove();
     }
-
-    // Run the attack check task
-    Sonar.get().getAttackTracker().checkIfUnderAttack();
-    // Clean up the cache of rate-limited IPs
-    Sonar.get().getFallback().getRatelimiter().cleanUpCache();
   }
 }

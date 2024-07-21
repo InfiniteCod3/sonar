@@ -8,6 +8,35 @@
     "Jones Development",
     "Sonar Contributors"
   ],
-  "dependencies": [],
+  "dependencies": [
+    {
+      "id": "geyser",
+      "optional": true
+    },
+    {
+      "id": "floodgate",
+      "optional": true
+    },
+    {
+      "id": "protocolize",
+      "optional": true
+    },
+    {
+      "id": "viaversion",
+      "optional": true
+    },
+    {
+      "id": "packetevents",
+      "optional": true
+    },
+    {
+      "id": "vpacketevents",
+      "optional": true
+    },
+    {
+      "id": "fastlogin",
+      "optional": true
+    }
+  ],
   "main": "$main"
 }

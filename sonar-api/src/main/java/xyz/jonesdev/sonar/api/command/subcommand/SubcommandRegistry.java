@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,30 +17,24 @@
 
 package xyz.jonesdev.sonar.api.command.subcommand;
 
+import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Unmodifiable;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Vector;
 
-public interface SubcommandRegistry {
-  List<Subcommand> SUBCOMMANDS = new Vector<>();
-
-  @NotNull
-  @Unmodifiable
-  default List<Subcommand> getSubcommands() {
-    return Collections.unmodifiableList(SUBCOMMANDS);
-  }
+@Getter
+public final class SubcommandRegistry {
+  private final List<Subcommand> subcommands = new Vector<>();
 
   /**
    * Registers a single or multiple subcommand(s)
    *
    * @param subcommand Array of Subcommands to register
    */
-  default void register(final Subcommand @NotNull ... subcommand) {
-    SUBCOMMANDS.addAll(Arrays.asList(subcommand));
+  public void register(final Subcommand @NotNull ... subcommand) {
+    subcommands.addAll(Arrays.asList(subcommand));
   }
 
   /**
@@ -49,7 +43,7 @@ public interface SubcommandRegistry {
    * @param subcommand Array of Subcommands to unregister
    */
   @SuppressWarnings("unused")
-  default void unregister(final Subcommand @NotNull ... subcommand) {
-    SUBCOMMANDS.removeAll(Arrays.asList(subcommand));
+  public void unregister(final Subcommand @NotNull ... subcommand) {
+    subcommands.removeAll(Arrays.asList(subcommand));
   }
 }

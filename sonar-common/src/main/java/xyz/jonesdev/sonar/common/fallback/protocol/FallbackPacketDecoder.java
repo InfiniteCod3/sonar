@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,29 +21,29 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.CorruptedFrameException;
+import lombok.Setter;
 import org.jetbrains.annotations.NotNull;
-import xyz.jonesdev.sonar.api.fallback.FallbackUser;
+import xyz.jonesdev.sonar.api.fallback.protocol.ProtocolVersion;
 
 import static xyz.jonesdev.sonar.api.fallback.protocol.ProtocolVersion.MINECRAFT_1_20_2;
 import static xyz.jonesdev.sonar.common.fallback.protocol.FallbackPacketRegistry.Direction.SERVERBOUND;
 import static xyz.jonesdev.sonar.common.fallback.protocol.FallbackPacketRegistry.GAME;
 import static xyz.jonesdev.sonar.common.fallback.protocol.FallbackPacketRegistry.LOGIN;
-import static xyz.jonesdev.sonar.common.utility.protocol.VarIntUtil.readVarInt;
+import static xyz.jonesdev.sonar.common.util.ProtocolUtil.readVarInt;
 
 public final class FallbackPacketDecoder extends ChannelInboundHandlerAdapter {
-  private final FallbackUser<?, ?> user;
-  private final FallbackPacketListener listener;
+  private final ProtocolVersion protocolVersion;
   private FallbackPacketRegistry.ProtocolRegistry registry;
+  @Setter
+  private FallbackPacketListener listener;
 
-  public FallbackPacketDecoder(final @NotNull FallbackUser<?, ?> user,
-                               final @NotNull FallbackPacketListener listener) {
-    this.user = user;
-    this.listener = listener;
-    updateRegistry(user.getProtocolVersion().compareTo(MINECRAFT_1_20_2) >= 0 ? LOGIN : GAME);
+  public FallbackPacketDecoder(final @NotNull ProtocolVersion protocolVersion) {
+    this.protocolVersion = protocolVersion;
+    updateRegistry(protocolVersion.compareTo(MINECRAFT_1_20_2) >= 0 ? LOGIN : GAME);
   }
 
   public void updateRegistry(final @NotNull FallbackPacketRegistry registry) {
-    this.registry = registry.getProtocolRegistry(SERVERBOUND, user.getProtocolVersion());
+    this.registry = registry.getProtocolRegistry(SERVERBOUND, protocolVersion);
   }
 
   @Override
@@ -52,45 +52,42 @@ public final class FallbackPacketDecoder extends ChannelInboundHandlerAdapter {
     if (msg instanceof ByteBuf) {
       final ByteBuf byteBuf = (ByteBuf) msg;
 
-      // Release the ByteBuf if the connection is not active
-      // or the ByteBuf doesn't contain any data to avoid
-      // memory leaks or other potential exploits.
-      if (!ctx.channel().isActive() || !byteBuf.isReadable()) {
-        byteBuf.release();
-        return;
-      }
-
-      final int originalReaderIndex = byteBuf.readerIndex();
-      // Read the packet ID and then create the packet from it
-      final int packetId = readVarInt(byteBuf);
-      final FallbackPacket packet = registry.createPacket(packetId);
-
-      // If the packet isn't found, skip it
-      if (packet == null) {
-        byteBuf.readerIndex(originalReaderIndex);
-        return;
-      }
-
       try {
+        // Release the ByteBuf if the connection is not active
+        // or the ByteBuf doesn't contain any data to avoid
+        // memory leaks or other potential exploits.
+        if (!ctx.channel().isActive() || !byteBuf.isReadable()) {
+          return;
+        }
+
+        // Read the packet ID and then create the packet from it
+        final int packetId = readVarInt(byteBuf);
+        final FallbackPacket packet = registry.createPacket(packetId);
+
+        // Skip the packet if it's not registered within Sonar's packet registry
+        if (packet == null) {
+          return;
+        }
+
         // Ensure that the packet isn't too large or too small
-        doLengthSanityChecks(byteBuf, packet);
+        checkPacketSize(byteBuf, packet);
 
         try {
           // Try to decode the packet for the given protocol version
-          packet.decode(byteBuf, user.getProtocolVersion());
+          packet.decode(byteBuf, protocolVersion);
         } catch (Throwable throwable) {
-          user.fail("failed to decode packet (" + byteBuf.readableBytes() + " bytes)");
           throw new CorruptedFrameException("Failed to decode packet");
         }
 
         // Check if the packet still has bytes left after we decoded it
         if (byteBuf.isReadable()) {
-          user.fail("could not read packet to end (" + byteBuf.readableBytes() + " bytes left)");
           throw new CorruptedFrameException("Could not read packet to end");
         }
 
         // Let our verification handler process the packet
-        listener.handle(packet);
+        if (listener != null) {
+          listener.handle(packet);
+        }
 
         // Fire channel read to avoid timeout
         ctx.fireChannelRead(packet);
@@ -98,24 +95,18 @@ public final class FallbackPacketDecoder extends ChannelInboundHandlerAdapter {
         // Release the ByteBuf to avoid memory leaks
         byteBuf.release();
       }
-    } else {
-      // Packets are always ByteBufs - if we detect an unknown object, fail verification
-      user.fail("packet is not a ByteBuf");
-      throw new CorruptedFrameException("Packet is not a ByteBuf?!");
     }
   }
 
-  private void doLengthSanityChecks(final ByteBuf byteBuf,
-                                    final @NotNull FallbackPacket packet) throws Exception {
-    final int expectedMaxLen = packet.expectedMaxLength(byteBuf, user.getProtocolVersion());
+  private void checkPacketSize(final @NotNull ByteBuf byteBuf,
+                               final @NotNull FallbackPacket packet) throws Exception {
+    final int expectedMaxLen = packet.expectedMaxLength(byteBuf, protocolVersion);
     if (expectedMaxLen != -1 && byteBuf.readableBytes() > expectedMaxLen) {
-      user.fail("packet too large (" + byteBuf.readableBytes() + " bytes)");
       throw new CorruptedFrameException("Packet too large");
     }
 
-    final int expectedMinLen = packet.expectedMinLength(byteBuf, user.getProtocolVersion());
-    if (byteBuf.readableBytes() < expectedMinLen) {
-      user.fail("packet too small (" + byteBuf.readableBytes() + " bytes)");
+    final int expectedMinLen = packet.expectedMinLength(byteBuf, protocolVersion);
+    if (expectedMinLen != -1 && byteBuf.readableBytes() < expectedMinLen) {
       throw new CorruptedFrameException("Packet too small");
     }
   }

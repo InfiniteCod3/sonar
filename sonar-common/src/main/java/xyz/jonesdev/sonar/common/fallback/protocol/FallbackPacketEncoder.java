@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,32 +20,38 @@ package xyz.jonesdev.sonar.common.fallback.protocol;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
+import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
 import xyz.jonesdev.sonar.api.fallback.protocol.ProtocolVersion;
 
 import static xyz.jonesdev.sonar.common.fallback.protocol.FallbackPacketRegistry.Direction.CLIENTBOUND;
 import static xyz.jonesdev.sonar.common.fallback.protocol.FallbackPacketRegistry.LOGIN;
-import static xyz.jonesdev.sonar.common.utility.protocol.VarIntUtil.writeVarInt;
+import static xyz.jonesdev.sonar.common.util.ProtocolUtil.writeVarInt;
 
 public final class FallbackPacketEncoder extends MessageToByteEncoder<FallbackPacket> {
   private final ProtocolVersion protocolVersion;
-  private FallbackPacketRegistry.ProtocolRegistry registry;
+  @Getter
+  private FallbackPacketRegistry packetRegistry;
+  private FallbackPacketRegistry.ProtocolRegistry protocolRegistry;
 
   public FallbackPacketEncoder(final ProtocolVersion protocolVersion) {
     this.protocolVersion = protocolVersion;
     updateRegistry(LOGIN);
   }
 
-  public void updateRegistry(final @NotNull FallbackPacketRegistry registry) {
-    this.registry = registry.getProtocolRegistry(CLIENTBOUND, protocolVersion);
+  public void updateRegistry(final @NotNull FallbackPacketRegistry packetRegistry) {
+    this.packetRegistry = packetRegistry;
+    this.protocolRegistry = packetRegistry.getProtocolRegistry(CLIENTBOUND, protocolVersion);
   }
 
   @Override
   protected void encode(final ChannelHandlerContext ctx,
-                        final FallbackPacket msg,
+                        final @NotNull FallbackPacket packet,
                         final ByteBuf out) throws Exception {
-    final int packetId = registry.getPacketId(msg);
+    final FallbackPacket originalPacket = packet instanceof FallbackPacketSnapshot
+      ? ((FallbackPacketSnapshot) packet).getOriginalPacket() : packet;
+    final int packetId = protocolRegistry.getPacketId(originalPacket);
     writeVarInt(out, packetId);
-    msg.encode(out, protocolVersion);
+    packet.encode(out, protocolVersion);
   }
 }

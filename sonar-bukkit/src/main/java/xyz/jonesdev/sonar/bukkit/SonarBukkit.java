@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,24 +17,29 @@
 
 package xyz.jonesdev.sonar.bukkit;
 
+import com.alessiodp.libby.BukkitLibraryManager;
 import lombok.Getter;
+import net.kyori.adventure.audience.Audience;
 import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import org.bstats.bukkit.Metrics;
+import org.bstats.charts.SimplePie;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import xyz.jonesdev.sonar.api.SonarPlatform;
 import xyz.jonesdev.sonar.api.logger.LoggerWrapper;
-import xyz.jonesdev.sonar.bukkit.audience.AudienceListener;
 import xyz.jonesdev.sonar.bukkit.command.BukkitSonarCommand;
 import xyz.jonesdev.sonar.common.boot.SonarBootstrap;
 
 import java.util.Objects;
+import java.util.UUID;
 
 @Getter
 public final class SonarBukkit extends SonarBootstrap<SonarBukkitPlugin> {
   public static SonarBukkit INSTANCE;
 
   public SonarBukkit(final @NotNull SonarBukkitPlugin plugin) {
-    super(plugin, plugin.getDataFolder(), SonarPlatform.BUKKIT);
+    super(plugin, SonarPlatform.BUKKIT, plugin.getDataFolder(),
+      new BukkitLibraryManager(plugin, plugin.getDataFolder().getName()));
     INSTANCE = this;
   }
 
@@ -42,6 +47,14 @@ public final class SonarBukkit extends SonarBootstrap<SonarBukkitPlugin> {
    * Wrapper for Bukkit audiences
    */
   private final BukkitAudiences bukkitAudiences = BukkitAudiences.create(getPlugin());
+
+  @Override
+  public @Nullable Audience audience(final @Nullable UUID uniqueId) {
+    if (uniqueId == null) {
+      return null;
+    }
+    return bukkitAudiences.player(uniqueId);
+  }
 
   /**
    * Create a wrapper for the plugin logger, so we can use it outside
@@ -67,16 +80,28 @@ public final class SonarBukkit extends SonarBootstrap<SonarBukkitPlugin> {
     }
   };
 
+  private Metrics metrics;
+
   @Override
   public void enable() {
-
     // Initialize bStats.org metrics
-    new Metrics(getPlugin(), getPlatform().getMetricsId());
+    metrics = new Metrics(getPlugin(), getPlatform().getMetricsId());
+
+    // Add charts for some configuration options
+    metrics.addCustomChart(new SimplePie("verification",
+      () -> getConfig().getVerification().getTiming().getDisplayName()));
+    metrics.addCustomChart(new SimplePie("captcha",
+      () -> getConfig().getVerification().getMap().getTiming().getDisplayName()));
 
     // Register Sonar command
     Objects.requireNonNull(getPlugin().getCommand("sonar")).setExecutor(new BukkitSonarCommand());
+  }
 
-    // Register audience register listener
-    getPlugin().getServer().getPluginManager().registerEvents(new AudienceListener(), getPlugin());
+  @Override
+  public void disable() {
+    if (metrics != null) {
+      // Make sure to properly shutdown bStats metrics
+      metrics.shutdown();
+    }
   }
 }

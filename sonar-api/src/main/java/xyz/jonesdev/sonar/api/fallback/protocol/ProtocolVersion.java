@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,13 +20,13 @@ package xyz.jonesdev.sonar.api.fallback.protocol;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
 
 @Getter
 @RequiredArgsConstructor
 public enum ProtocolVersion {
   UNKNOWN(-1),
-  LEGACY(-2),
   MINECRAFT_1_7_2(4),
   MINECRAFT_1_7_6(5),
   MINECRAFT_1_8(47),
@@ -66,38 +66,24 @@ public enum ProtocolVersion {
   MINECRAFT_1_19_4(762),
   MINECRAFT_1_20(763),
   MINECRAFT_1_20_2(764),
-  MINECRAFT_1_20_3(765);
+  MINECRAFT_1_20_3(765),
+  MINECRAFT_1_20_5(766),
+  MINECRAFT_1_21(767);
 
   private final int protocol;
 
-  public static final ProtocolVersion MINIMUM_VERSION = MINECRAFT_1_7_2;
   public static final ProtocolVersion LATEST_VERSION;
   public static final Map<Integer, ProtocolVersion> ID_TO_PROTOCOL_CONSTANT;
-  public static final Set<ProtocolVersion> SUPPORTED_VERSIONS;
 
   static {
-    {
-      final Map<Integer, ProtocolVersion> versions = new HashMap<>();
+    final Map<Integer, ProtocolVersion> versions = new HashMap<>();
 
-      for (final ProtocolVersion version : values()) {
-        versions.putIfAbsent(version.protocol, version);
-      }
-
-      ID_TO_PROTOCOL_CONSTANT = versions;
+    for (final ProtocolVersion version : values()) {
+      versions.putIfAbsent(version.protocol, version);
     }
 
-    {
-      final Set<ProtocolVersion> versions = EnumSet.noneOf(ProtocolVersion.class);
-
-      for (final ProtocolVersion value : values()) {
-        if (!value.isUnknown() && !value.isLegacy()) {
-          versions.add(value);
-        }
-      }
-
-      SUPPORTED_VERSIONS = Collections.unmodifiableSet(versions);
-      LATEST_VERSION = (ProtocolVersion) versions.toArray()[versions.size() - 1];
-    }
+    ID_TO_PROTOCOL_CONSTANT = versions;
+    LATEST_VERSION = values()[values().length - 1];
   }
 
   public static ProtocolVersion fromId(final int protocol) {
@@ -110,10 +96,5 @@ public enum ProtocolVersion {
 
   public boolean isUnknown() {
     return this == UNKNOWN;
-  }
-
-  @SuppressWarnings("BooleanMethodIsAlwaysInverted")
-  public boolean isLegacy() {
-    return this == LEGACY;
   }
 }

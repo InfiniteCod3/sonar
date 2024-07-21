@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,13 +18,12 @@
 package xyz.jonesdev.sonar.api.timer;
 
 import lombok.Getter;
-import org.jetbrains.annotations.NotNull;
 
 import java.text.SimpleDateFormat;
 
 @Getter
 public final class SystemTimer {
-  private static final SimpleDateFormat FORMATTER = new SimpleDateFormat("mm:ss");
+  public static final SimpleDateFormat DATE_FORMATTER = new SimpleDateFormat("mm:ss");
 
   private long start = System.currentTimeMillis();
 
@@ -32,16 +31,18 @@ public final class SystemTimer {
     start = System.currentTimeMillis();
   }
 
+  /**
+   * @return Time between the current timestamp and the start timestamp
+   */
   public long delay() {
     return System.currentTimeMillis() - start;
   }
 
+  /**
+   * @apiNote Read more: {@link SystemTimer#delay}
+   */
   public boolean elapsed(final long amount) {
     return delay() >= amount;
-  }
-
-  public @NotNull String formattedDelay() {
-    return FORMATTER.format(delay());
   }
 
   @Override

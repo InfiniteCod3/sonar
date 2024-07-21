@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,7 +18,6 @@
 package xyz.jonesdev.sonar.common.fallback;
 
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import org.jetbrains.annotations.NotNull;
@@ -26,30 +25,18 @@ import org.jetbrains.annotations.NotNull;
 import java.util.concurrent.TimeUnit;
 
 public final class FallbackTimeoutHandler extends IdleStateHandler {
-  private boolean knownDisconnect;
-
-  public FallbackTimeoutHandler(final long timeout, final TimeUnit timeUnit) {
-    super(timeout, 0L, 0L, timeUnit);
+  public FallbackTimeoutHandler(final int readTimeout, final int writeTimeout, final TimeUnit timeUnit) {
+    super(readTimeout, writeTimeout, 0L, timeUnit);
   }
 
   @Override
   protected void channelIdle(final ChannelHandlerContext ctx,
                              final @NotNull IdleStateEvent idleStateEvent) throws Exception {
-    assert idleStateEvent.state() == IdleState.READER_IDLE;
-    readTimedOut(ctx);
-  }
-
-  private void readTimedOut(final ChannelHandlerContext ctx) {
-    if (!knownDisconnect) {
-
-      // The netty (default) ReadTimeoutHandler would normally just throw an Exception
-      // The default ReadTimeoutHandler does only check for the boolean 'closed' and
-      // still throws the Exception even if the channel is closed
-      if (ctx.channel().isActive()) {
-        ctx.close();
-      }
-
-      knownDisconnect = true;
+    // The netty (default) ReadTimeoutHandler would normally just throw an Exception
+    // The default ReadTimeoutHandler does only check for the boolean 'closed' and
+    // still throws the Exception even if the channel is closed
+    if (ctx.channel().isActive()) {
+      ctx.close();
     }
   }
 }

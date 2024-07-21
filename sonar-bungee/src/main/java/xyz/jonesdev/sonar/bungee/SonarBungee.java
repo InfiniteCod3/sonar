@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,25 +17,28 @@
 
 package xyz.jonesdev.sonar.bungee;
 
+import com.alessiodp.libby.BungeeLibraryManager;
 import lombok.Getter;
+import net.kyori.adventure.audience.Audience;
 import net.kyori.adventure.platform.bungeecord.BungeeAudiences;
 import org.bstats.bungeecord.Metrics;
+import org.bstats.charts.SimplePie;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import xyz.jonesdev.sonar.api.SonarPlatform;
 import xyz.jonesdev.sonar.api.logger.LoggerWrapper;
-import xyz.jonesdev.sonar.bungee.audience.AudienceListener;
 import xyz.jonesdev.sonar.bungee.command.BungeeSonarCommand;
-import xyz.jonesdev.sonar.bungee.fallback.FallbackListener;
-import xyz.jonesdev.sonar.bungee.fallback.injection.BaseInjectionHelper;
-import xyz.jonesdev.sonar.bungee.fallback.injection.ChildChannelInitializer;
+import xyz.jonesdev.sonar.bungee.fallback.FallbackBungeeInjector;
 import xyz.jonesdev.sonar.common.boot.SonarBootstrap;
+
+import java.util.UUID;
 
 @Getter
 public final class SonarBungee extends SonarBootstrap<SonarBungeePlugin> {
   public static SonarBungee INSTANCE;
 
   public SonarBungee(final @NotNull SonarBungeePlugin plugin) {
-    super(plugin, plugin.getDataFolder(), SonarPlatform.BUNGEE);
+    super(plugin, SonarPlatform.BUNGEE, plugin.getDataFolder(), new BungeeLibraryManager(plugin));
     INSTANCE = this;
   }
 
@@ -43,6 +46,14 @@ public final class SonarBungee extends SonarBootstrap<SonarBungeePlugin> {
    * Wrapper for BungeeCord audiences
    */
   private final BungeeAudiences bungeeAudiences = BungeeAudiences.create(getPlugin());
+
+  @Override
+  public @Nullable Audience audience(final @Nullable UUID uniqueId) {
+    if (uniqueId == null) {
+      return null;
+    }
+    return bungeeAudiences.player(uniqueId);
+  }
 
   /**
    * Create a wrapper for the plugin logger, so we can use it outside
@@ -68,22 +79,31 @@ public final class SonarBungee extends SonarBootstrap<SonarBungeePlugin> {
     }
   };
 
+  private Metrics metrics;
+
   @Override
   public void enable() {
-
     // Initialize bStats.org metrics
-    new Metrics(getPlugin(), getPlatform().getMetricsId());
+    metrics = new Metrics(getPlugin(), getPlatform().getMetricsId());
+
+    // Add charts for some configuration options
+    metrics.addCustomChart(new SimplePie("verification",
+      () -> getConfig().getVerification().getTiming().getDisplayName()));
+    metrics.addCustomChart(new SimplePie("captcha",
+      () -> getConfig().getVerification().getMap().getTiming().getDisplayName()));
 
     // Register Sonar command
     getPlugin().getServer().getPluginManager().registerCommand(getPlugin(), new BungeeSonarCommand());
 
-    // Register Fallback listener
-    getPlugin().getServer().getPluginManager().registerListener(getPlugin(), new FallbackListener());
+    // Make sure to inject into the server's connection handler
+    FallbackBungeeInjector.inject();
+  }
 
-    // Register audience register listener
-    getPlugin().getServer().getPluginManager().registerListener(getPlugin(), new AudienceListener());
-
-    // Inject base into ProtocolUtils
-    BaseInjectionHelper.inject(ChildChannelInitializer.INSTANCE);
+  @Override
+  public void disable() {
+    if (metrics != null) {
+      // Make sure to properly shutdown bStats metrics
+      metrics.shutdown();
+    }
   }
 }

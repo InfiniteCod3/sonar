@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,13 +20,11 @@ package xyz.jonesdev.sonar.api.command;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.ToString;
-import xyz.jonesdev.sonar.api.command.subcommand.Subcommand;
 
 @Getter
 @RequiredArgsConstructor
 @ToString(of = "rawArguments")
 public final class CommandInvocation {
-  private final InvocationSource sender;
-  private final Subcommand subcommand;
+  private final InvocationSource source;
   private final String[] rawArguments;
 }

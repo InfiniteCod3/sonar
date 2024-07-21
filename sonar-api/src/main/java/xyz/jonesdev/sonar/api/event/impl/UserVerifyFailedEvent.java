@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,23 +19,17 @@ package xyz.jonesdev.sonar.api.event.impl;
 
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import lombok.ToString;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.NotNull;
 import xyz.jonesdev.sonar.api.event.SonarEvent;
 import xyz.jonesdev.sonar.api.fallback.FallbackUser;
-
-import java.util.Optional;
 
 @Getter
 @ToString
 @EqualsAndHashCode
+@RequiredArgsConstructor
 public final class UserVerifyFailedEvent implements SonarEvent {
-  private final FallbackUser<?, ?> user;
-  @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
-  private final Optional<String> reason;
-
-  public UserVerifyFailedEvent(final FallbackUser<?, ?> user, final @Nullable String reason) {
-    this.user = user;
-    this.reason = Optional.ofNullable(reason);
-  }
+  private final @NotNull FallbackUser user;
+  private final @NotNull String reason;
 }

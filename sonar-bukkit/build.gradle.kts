@@ -1,18 +1,20 @@
 import net.minecrell.pluginyml.bukkit.BukkitPluginDescription
 
 plugins {
-  id("net.minecrell.plugin-yml.bukkit") version "0.6.0"
+  id("net.minecrell.plugin-yml.bukkit") version "0.6.0" apply true
 }
 
-apply(plugin = "net.minecrell.plugin-yml.bukkit")
-
 bukkit {
-  name = "Sonar"
-  version = rootProject.version.toString().split("-")[0]
+  name = rootProject.name
+  description = rootProject.description
+  version = rootProject.version.toString()
   main = "xyz.jonesdev.sonar.bukkit.SonarBukkitPlugin"
   authors = listOf("Jones Development", "Sonar Contributors")
   website = "https://jonesdev.xyz/discord/"
   load = BukkitPluginDescription.PluginLoadOrder.POSTWORLD
+  softDepend = listOf("Geyser-Spigot", "floodgate", "Protocolize", "ProtocolSupport",
+    "ViaVersion", "packetevents", "ProtocolLib", "FastLogin")
+  foliaSupported = true
 
   commands {
     register("sonar") {
@@ -27,18 +29,24 @@ repositories {
 }
 
 dependencies {
-  compileOnly(project(":api"))
-  compileOnly(project(":common"))
+  implementation(project(":api"))
+  implementation(project(":common"))
 
-  // MiniMessage platform support
-  implementation("net.kyori:adventure-platform-bukkit:4.3.1")
+  compileOnly(rootProject.libs.spigot)
 
-  // We have to use 1.8 for backwards compatibility
-  compileOnly("org.spigotmc:spigot-api:1.8.8-R0.1-SNAPSHOT")
-
-  // Implement bStats.org for metrics
-  implementation("org.bstats:bstats-bukkit:3.0.2")
+  implementation(rootProject.libs.adventure.platform.bukkit)
+  implementation(rootProject.libs.adventure.platform.api)
+  implementation(rootProject.libs.adventure.platform.facet)
+  implementation(rootProject.libs.adventure.nbt)
+  implementation(rootProject.libs.bstats.bukkit)
+  implementation(rootProject.libs.libby.bukkit)
 }
 
-java.sourceCompatibility = JavaVersion.VERSION_1_8
-java.targetCompatibility = JavaVersion.VERSION_1_8
+tasks {
+  shadowJar {
+    relocate("net.kyori", "xyz.jonesdev.sonar.libs.kyori")
+  }
+}
+
+java.sourceCompatibility = JavaVersion.VERSION_11
+java.targetCompatibility = JavaVersion.VERSION_11

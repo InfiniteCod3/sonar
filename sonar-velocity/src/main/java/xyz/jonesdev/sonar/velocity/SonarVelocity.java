@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,22 +17,41 @@
 
 package xyz.jonesdev.sonar.velocity;
 
+import com.alessiodp.libby.VelocityLibraryManager;
 import lombok.Getter;
+import net.kyori.adventure.audience.Audience;
+import org.bstats.charts.SimplePie;
+import org.bstats.velocity.Metrics;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import xyz.jonesdev.sonar.api.SonarPlatform;
 import xyz.jonesdev.sonar.api.logger.LoggerWrapper;
 import xyz.jonesdev.sonar.common.boot.SonarBootstrap;
-import xyz.jonesdev.sonar.velocity.audience.AudienceListener;
 import xyz.jonesdev.sonar.velocity.command.VelocitySonarCommand;
-import xyz.jonesdev.sonar.velocity.fallback.FallbackListener;
+import xyz.jonesdev.sonar.velocity.fallback.FallbackVelocityInjector;
+
+import java.util.UUID;
 
 @Getter
 public final class SonarVelocity extends SonarBootstrap<SonarVelocityPlugin> {
   public static SonarVelocity INSTANCE;
 
   public SonarVelocity(final @NotNull SonarVelocityPlugin plugin) {
-    super(plugin, plugin.getDataDirectory().toFile(), SonarPlatform.VELOCITY);
+    super(plugin, SonarPlatform.VELOCITY, plugin.getDataDirectory().toFile(),
+      new VelocityLibraryManager<>(plugin, plugin.getLogger(),
+        plugin.getDataDirectory(), plugin.getServer().getPluginManager()));
     INSTANCE = this;
+  }
+
+  /**
+   * Wrapper for Velocity audiences
+   */
+  @Override
+  public @Nullable Audience audience(final @Nullable UUID uniqueId) {
+    if (uniqueId == null) {
+      return null;
+    }
+    return getPlugin().getServer().getPlayer(uniqueId).orElse(null);
   }
 
   /**
@@ -59,19 +78,31 @@ public final class SonarVelocity extends SonarBootstrap<SonarVelocityPlugin> {
     }
   };
 
+  private Metrics metrics;
+
   @Override
   public void enable() {
-
     // Initialize bStats.org metrics
-    getPlugin().getMetricsFactory().make(getPlugin(), getPlatform().getMetricsId());
+    metrics = getPlugin().getMetricsFactory().make(getPlugin(), getPlatform().getMetricsId());
+
+    // Add charts for some configuration options
+    metrics.addCustomChart(new SimplePie("verification",
+      () -> getConfig().getVerification().getTiming().getDisplayName()));
+    metrics.addCustomChart(new SimplePie("captcha",
+      () -> getConfig().getVerification().getMap().getTiming().getDisplayName()));
 
     // Register Sonar command
     getPlugin().getServer().getCommandManager().register("sonar", new VelocitySonarCommand());
 
-    // Register Fallback listener
-    getPlugin().getServer().getEventManager().register(getPlugin(), new FallbackListener(getFallback()));
+    // Make sure to inject into the server's connection handler
+    FallbackVelocityInjector.inject(getPlugin().getServer());
+  }
 
-    // Register audience register listener
-    getPlugin().getServer().getEventManager().register(getPlugin(), new AudienceListener());
+  @Override
+  public void disable() {
+    if (metrics != null) {
+      // Make sure to properly shutdown bStats metrics
+      metrics.shutdown();
+    }
   }
 }

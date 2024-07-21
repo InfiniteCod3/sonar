@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,102 +19,116 @@ package xyz.jonesdev.sonar.api.config;
 
 import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
-import org.simpleyaml.configuration.comments.format.YamlCommentFormat;
+import org.simpleyaml.configuration.MemorySection;
 import org.simpleyaml.configuration.file.YamlFile;
-import xyz.jonesdev.sonar.api.Sonar;
 
 import java.io.File;
-import java.io.IOException;
-import java.util.Arrays;
+import java.io.InputStream;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
-import static xyz.jonesdev.sonar.api.Sonar.LINE_SEPARATOR;
+import static xyz.jonesdev.sonar.api.config.SonarConfiguration.LOGGER;
 
 @Getter
 public final class SimpleYamlConfig {
   private final File file;
   private final YamlFile yaml;
 
-  private static final List<String> HEADER = Arrays.asList(
-    "",
-    String.format("Running Sonar version %s on %s",
-      Sonar.get().getVersion(), Sonar.get().getPlatform().getDisplayName()),
-    "Need help or have questions? https://jonesdev.xyz/discord",
-    "https://github.com/jonesdevelopment/sonar",
-    ""
-  );
-
-  public SimpleYamlConfig(final File dataFolder, final String fileName) {
-    this(new File(dataFolder, fileName + ".yml"), dataFolder);
-  }
-
-  private SimpleYamlConfig(final File file, final @NotNull File folder) {
-    if (!folder.exists() && !folder.mkdir()) {
-      throw new IllegalStateException("Could not create folder?!");
-    }
-
+  public SimpleYamlConfig(final @NotNull File file) {
     this.file = file;
     this.yaml = new YamlFile(file.getPath());
   }
 
-  public void save() {
-    try {
-      yaml.save();
-    } catch (IOException exception) {
-      exception.printStackTrace(System.err);
+  private void replaceConfigFile(final @NotNull URL defaultData) throws Exception {
+    try (final InputStream inputStream = defaultData.openStream()) {
+      Files.copy(inputStream, file.toPath(), StandardCopyOption.REPLACE_EXISTING);
     }
   }
 
-  public void load() throws Exception {
-    // https://github.com/jonesdevelopment/sonar/issues/26
-    // Only load the configuration if the file already exists
-    if (yaml.exists()) {
-      yaml.loadWithComments();
-    } else {
-      yaml.createOrLoadWithComments();
+  public void load(final @NotNull URL defaultData) throws Exception {
+    final boolean exists = yaml.exists();
+
+    // Copy the configuration from the translations
+    if (!exists) {
+      replaceConfigFile(defaultData);
     }
 
-    // Always load the comment format and options
-    yaml.setCommentFormat(YamlCommentFormat.DEFAULT);
-    yaml.setHeader(String.join(LINE_SEPARATOR, HEADER));
+    // Load the configuration
+    yaml.loadWithComments();
+
+    // I hate my life... but this works... somehow
+    if (exists) {
+      // First, we store all values from the current (old) config
+      final Map<String, Object> values = yaml.getValues(true);
+      // Then, we replace the old config file with the default one
+      replaceConfigFile(defaultData);
+      // Re-load the configuration
+      yaml.loadWithComments();
+      // Loop through the new values from the new configuration
+      yaml.getValues(true).forEach((path, v) -> {
+        final Object value = values.get(path);
+        // Make sure we actually need to update the value
+        if (value != null && !value.equals(v)
+          && !(v instanceof MemorySection)
+          && !(value instanceof MemorySection)) {
+          // Set the old values to the new values
+          yaml.set(path, value);
+        }
+      });
+      // Save the yaml file to ensure we keep the original values
+      yaml.save();
+    }
   }
 
   public void set(final String path, final Object v) {
     yaml.set(path, v);
   }
 
-  public int getInt(final String path, final int def) {
-    yaml.addDefault(path, def);
-    return yaml.getInt(path, def);
+  public int getInt(final String path) {
+    if (!yaml.contains(path)) {
+      LOGGER.warn("Could not find {} in {}.", path, file.getName());
+      return 0;
+    }
+    return yaml.getInt(path);
   }
 
-  public boolean getBoolean(final String path, final boolean def) {
-    yaml.addDefault(path, def);
-    return yaml.getBoolean(path, def);
+  public boolean getBoolean(final String path) {
+    if (!yaml.contains(path)) {
+      LOGGER.warn("Could not find {} in {}.", path, file.getName());
+      return false;
+    }
+    return yaml.getBoolean(path);
   }
 
-  public String getString(final String path, final String def) {
-    final Object object = getObject(path, def);
+  public @NotNull String getString(final String path) {
+    if (!yaml.contains(path)) {
+      LOGGER.warn("Could not find {} in {}.", path, file.getName());
+      return "";
+    }
+    final Object object = yaml.get(path);
     if (object instanceof String) {
       return (String) object;
     }
-    Sonar.get().getLogger().info("[config] Migrated {} to {}", path, def);
-    set(path, def);
-    return def;
+    throw new IllegalStateException("Invalid entry " + path);
   }
 
-  public Object getObject(final String path, final Object def) {
-    yaml.addDefault(path, def);
-    return yaml.get(path, def);
-  }
-
-  public List<String> getStringList(final String path, final List<String> def) {
-    yaml.addDefault(path, def);
+  public List<String> getStringList(final String path) {
+    if (!yaml.contains(path)) {
+      LOGGER.warn("Could not find {} in {}.", path, file.getName());
+      return new ArrayList<>(0);
+    }
     return yaml.getStringList(path);
   }
 
-  public List<Integer> getIntList(final String path, final List<Integer> def) {
-    yaml.addDefault(path, def);
+  public List<Integer> getIntList(final String path) {
+    if (!yaml.contains(path)) {
+      LOGGER.warn("Could not find {} in {}.", path, file.getName());
+      return new ArrayList<>(0);
+    }
     return yaml.getIntegerList(path);
   }
 }

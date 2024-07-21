@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,108 +18,73 @@
 package xyz.jonesdev.sonar.api.verbose;
 
 import lombok.Getter;
-import lombok.val;
 import net.kyori.adventure.audience.Audience;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
-import org.jetbrains.annotations.NotNull;
-import xyz.jonesdev.cappuccino.Cappuccino;
-import xyz.jonesdev.cappuccino.ExpiringCache;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import xyz.jonesdev.sonar.api.Sonar;
 import xyz.jonesdev.sonar.api.attack.AttackTracker;
-import xyz.jonesdev.sonar.api.profiler.JVMProfiler;
-import xyz.jonesdev.sonar.api.statistics.Statistics;
 import xyz.jonesdev.sonar.api.timer.SystemTimer;
 
-import java.util.Collection;
-import java.util.Map;
-import java.util.Vector;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 
 import static xyz.jonesdev.sonar.api.Sonar.DECIMAL_FORMAT;
-import static xyz.jonesdev.sonar.api.fallback.traffic.TrafficCounter.INCOMING;
-import static xyz.jonesdev.sonar.api.fallback.traffic.TrafficCounter.OUTGOING;
+import static xyz.jonesdev.sonar.api.jvm.JVMProcessInformation.*;
+import static xyz.jonesdev.sonar.api.timer.SystemTimer.DATE_FORMATTER;
 
 @Getter
-public final class Verbose implements JVMProfiler {
-  private final @NotNull Collection<String> subscribers = new Vector<>(0);
-  private final @NotNull Map<String, Audience> audiences = new ConcurrentHashMap<>();
+public final class Verbose extends Observable {
   private int animationIndex;
-  private final ExpiringCache<Long> loginsPerSecond = Cappuccino.buildExpiring(1L, TimeUnit.SECONDS);
 
-  // Run action bar verbose
-  public void update() {
-    // Clean up all blacklisted IPs
-    Sonar.get().getFallback().getBlacklisted().cleanUp(false);
-    loginsPerSecond.cleanUp(false);
-
+  @Override
+  public void observe() {
     // Don't prepare component if there are no subscribers
-    if (subscribers.isEmpty()) return;
-    // Prepare the action bar format component
-    final Component component = prepareActionBarFormat();
+    if (subscribers.isEmpty()) {
+      return;
+    }
+
+    // Prepare the action bar verbose
+    final AttackTracker.AttackStatistics attackStatistics = Sonar.get().getAttackTracker().getCurrentAttack();
+    final SystemTimer attackTimer = attackStatistics == null ? null : attackStatistics.getDuration();
+    final String attackDuration = attackTimer == null ? "00:00" : DATE_FORMATTER.format(attackTimer.delay());
+
+    final Component actionBarComponent = MiniMessage.miniMessage().deserialize(attackTimer == null
+        ? Sonar.get().getConfig().getMessagesConfig().getString("verbose.layout.normal")
+        : Sonar.get().getConfig().getMessagesConfig().getString("verbose.layout.attack"),
+      Placeholder.component("prefix", Sonar.get().getConfig().getPrefix()),
+      Placeholder.unparsed("attack-duration", attackDuration),
+      Placeholder.unparsed("animation", nextAnimation()),
+      Placeholder.unparsed("queued", DECIMAL_FORMAT.format(Sonar.get().getFallback().getQueue().getPlayers().size())),
+      Placeholder.unparsed("verifying", DECIMAL_FORMAT.format(Sonar.get().getFallback().getConnected().size())),
+      Placeholder.unparsed("blacklisted", DECIMAL_FORMAT.format(Sonar.get().getFallback().getBlacklist().estimatedSize())),
+      Placeholder.unparsed("total-joins", DECIMAL_FORMAT.format(Sonar.get().getStatistics().getTotalPlayersJoined())),
+      Placeholder.unparsed("logins-per-second", DECIMAL_FORMAT.format(Sonar.get().getStatistics().getLoginsPerSecond())),
+      Placeholder.unparsed("connections-per-second", DECIMAL_FORMAT.format(Sonar.get().getStatistics().getConnectionsPerSecond())),
+      Placeholder.unparsed("verify-total", DECIMAL_FORMAT.format(Sonar.get().getStatistics().getTotalAttemptedVerifications())),
+      Placeholder.unparsed("verify-success", DECIMAL_FORMAT.format(Sonar.get().getStatistics().getTotalSuccessfulVerifications())),
+      Placeholder.unparsed("verify-failed", DECIMAL_FORMAT.format(Sonar.get().getStatistics().getTotalFailedVerifications())),
+      Placeholder.unparsed("incoming-traffic", Sonar.get().getStatistics().getCurrentIncomingBandwidthFormatted()),
+      Placeholder.unparsed("outgoing-traffic", Sonar.get().getStatistics().getCurrentOutgoingBandwidthFormatted()),
+      Placeholder.unparsed("incoming-traffic-ttl", Sonar.get().getStatistics().getTotalIncomingBandwidthFormatted()),
+      Placeholder.unparsed("outgoing-traffic-ttl", Sonar.get().getStatistics().getTotalOutgoingBandwidthFormatted()),
+      Placeholder.unparsed("used-memory", formatMemory(getUsedMemory())),
+      Placeholder.unparsed("free-memory", formatMemory(getFreeMemory())),
+      Placeholder.unparsed("total-memory", formatMemory(getTotalMemory())),
+      Placeholder.unparsed("max-memory", formatMemory(getMaxMemory())));
+
     // Send the action bar to all online players
-    for (final String subscriber : subscribers) {
-      final Audience audience = audiences.get(subscriber);
+    for (final UUID subscriber : subscribers) {
+      final Audience audience = Sonar.get().audience(subscriber);
       if (audience == null) continue;
-      audience.sendActionBar(component);
+
+      // Send the action bar to all online subscribers
+      audience.sendActionBar(actionBarComponent);
     }
   }
 
-  public @NotNull Component prepareActionBarFormat() {
-    final AttackTracker.AttackStatistics attackStatistics = Sonar.get().getAttackTracker().getCurrentAttack();
-    final SystemTimer attackDuration = attackStatistics == null ? null : attackStatistics.getDuration();
-    return MiniMessage.miniMessage().deserialize((attackDuration != null
-      ? Sonar.get().getConfig().getVerbose().getActionBarLayoutDuringAttack()
-      : Sonar.get().getConfig().getVerbose().getActionBarLayout())
-      .replace("%queued%",
-        DECIMAL_FORMAT.format(Sonar.get().getFallback().getQueue().getQueuedPlayers().size()))
-      .replace("%verifying%", DECIMAL_FORMAT.format(Sonar.get().getFallback().getConnected().size()))
-      .replace("%blacklisted%",
-        DECIMAL_FORMAT.format(Sonar.get().getFallback().getBlacklisted().estimatedSize()))
-      .replace("%total-joins%", DECIMAL_FORMAT.format(Statistics.TOTAL_TRAFFIC.get()))
-      .replace("%logins-per-second%", DECIMAL_FORMAT.format(loginsPerSecond.estimatedSize()))
-      .replace("%verify-total%", DECIMAL_FORMAT.format(Statistics.REAL_TRAFFIC.get()))
-      .replace("%verify-success%",
-        DECIMAL_FORMAT.format(Sonar.get().getVerifiedPlayerController().estimatedSize()))
-      .replace("%verify-failed%", DECIMAL_FORMAT.format(Statistics.FAILED_VERIFICATIONS.get()))
-      .replace("%attack-duration%", attackDuration == null ? "00:00" : attackDuration.formattedDelay())
-      .replace("%incoming-traffic%", INCOMING.getCachedSecond())
-      .replace("%outgoing-traffic%", OUTGOING.getCachedSecond())
-      .replace("%incoming-traffic-ttl%", INCOMING.getCachedTtl())
-      .replace("%outgoing-traffic-ttl%", OUTGOING.getCachedTtl())
-      .replace("%used-memory%", formatMemory(getUsedMemory()))
-      .replace("%free-memory%", formatMemory(getFreeMemory()))
-      .replace("%total-memory%", formatMemory(getTotalMemory()))
-      .replace("%max-memory%", formatMemory(getMaxMemory()))
-      .replace("%animation%", nextAnimation()));
-  }
-
   public String nextAnimation() {
-    val animations = Sonar.get().getConfig().getVerbose().getAnimation();
+    final var animations = Sonar.get().getConfig().getVerboseAnimation();
     final int nextIndex = ++animationIndex % animations.size();
     return animations.toArray(new String[0])[nextIndex];
-  }
-
-  /**
-   * @param name Name of the audience
-   * @return Whether the audience is subscribed or not
-   */
-  public boolean isSubscribed(final @NotNull String name) {
-    return subscribers.contains(name);
-  }
-
-  /**
-   * @param name Name of the audience to subscribe
-   */
-  public void subscribe(final String name) {
-    subscribers.add(name);
-  }
-
-  /**
-   * @param name Name of the audience to unsubscribe
-   */
-  public void unsubscribe(final String name) {
-    subscribers.remove(name);
   }
 }

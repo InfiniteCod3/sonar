@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,68 +19,87 @@ package xyz.jonesdev.sonar.api.fallback;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelPipeline;
+import io.netty.util.ReferenceCountUtil;
 import net.kyori.adventure.text.Component;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import xyz.jonesdev.cappuccino.Cappuccino;
-import xyz.jonesdev.cappuccino.ExpiringCache;
-import xyz.jonesdev.sonar.api.Sonar;
-import xyz.jonesdev.sonar.api.event.impl.UserBlacklistedEvent;
-import xyz.jonesdev.sonar.api.event.impl.UserVerifyFailedEvent;
 import xyz.jonesdev.sonar.api.fallback.protocol.ProtocolVersion;
-import xyz.jonesdev.sonar.api.statistics.Statistics;
+import xyz.jonesdev.sonar.api.timer.SystemTimer;
 
 import java.net.InetAddress;
-import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 
-public interface FallbackUser<X, Y> {
-  @NotNull Fallback getFallback();
+public interface FallbackUser {
+  @NotNull
+  Channel getChannel();
 
-  @NotNull X getPlayer();
+  @NotNull
+  ChannelPipeline getPipeline();
 
-  @NotNull Y getConnection();
+  @NotNull
+  InetAddress getInetAddress();
 
-  @NotNull Channel getChannel();
+  @NotNull
+  ProtocolVersion getProtocolVersion();
 
-  @NotNull ChannelPipeline getPipeline();
+  @NotNull
+  SystemTimer getLoginTimer();
 
-  @NotNull InetAddress getInetAddress();
+  boolean isReceivedClientSettings();
 
-  @NotNull ProtocolVersion getProtocolVersion();
+  void setReceivedClientSettings(final boolean receivedClientSettings);
+
+  boolean isReceivedPluginMessage();
+
+  void setReceivedPluginMessage(final boolean receivedPluginMessage);
+
+  boolean isGeyser();
 
   /**
-   * Kicks the player from the server with
-   * the given disconnect message.
+   * Disconnect the player during/after verification
+   * using our custom Disconnect packet.
    *
-   * @param reason Legacy disconnect message string
-   * @see #disconnect(Component)
-   */
-  default void disconnect(final @NotNull String reason) {
-    disconnect(Component.text(reason));
-  }
-
-  /**
-   * Kicks the player from the server with
-   * the given disconnect message.
-   *
-   * @param reason Disconnect message component
+   * @param reason      Disconnect message component
    */
   void disconnect(final @NotNull Component reason);
+
+  /**
+   * Takes over the channel and begins the verification process
+   *
+   * @param username Username of the player
+   * @param uuid     UUID of the player
+   * @param encoder  Name of the encoder pipeline
+   * @param decoder  Name of the decoder pipeline
+   * @param timeout  Name of the read timeout pipeline
+   * @param handler  Name of the main pipeline
+   */
+  void hijack(final @NotNull String username, final @NotNull UUID uuid,
+              final @NotNull String encoder, final @NotNull String decoder,
+              final @NotNull String timeout, final @NotNull String handler);
 
   /**
    * Sends a packet/message to the player
    *
    * @param msg Message to send to the player
    */
-  void write(final @NotNull Object msg);
+  default void write(final @NotNull Object msg) {
+    if (getChannel().isActive()) {
+      getChannel().writeAndFlush(msg, getChannel().voidPromise());
+    } else {
+      ReferenceCountUtil.release(msg);
+    }
+  }
 
   /**
    * Queues a buffered message that will be
    * sent once all messages are flushed.
    */
-  void delayedWrite(final @NotNull Object msg);
-
-  ExpiringCache<String> PREVIOUS_FAILS = Cappuccino.buildExpiring(3L, TimeUnit.MINUTES);
+  default void delayedWrite(final @NotNull Object msg) {
+    if (getChannel().isActive()) {
+      getChannel().write(msg, getChannel().voidPromise());
+    } else {
+      ReferenceCountUtil.release(msg);
+    }
+  }
 
   /**
    * Disconnects the player who failed the verification
@@ -89,39 +108,8 @@ public interface FallbackUser<X, Y> {
    * the player will be temporarily denied from verifying.
    *
    * @param reason Reason for failing the verification
+   * @apiNote The {@link xyz.jonesdev.sonar.api.event.impl.UserVerifyFailedEvent}
+   * will not be thrown if no reason is given
    */
-  default void fail(final @Nullable String reason) {
-    if (getChannel().isActive()) {
-      disconnect(Sonar.get().getConfig().getVerification().getVerificationFailed());
-
-      if (reason != null) {
-        getFallback().getLogger().info(Sonar.get().getConfig().getVerification().getFailedLog()
-          .replace("%ip%", Sonar.get().getConfig().formatAddress(getInetAddress()))
-          .replace("%protocol%", String.valueOf(getProtocolVersion().getProtocol()))
-          .replace("%reason%", reason));
-      }
-    }
-
-    Statistics.FAILED_VERIFICATIONS.increment();
-
-    // Call the VerifyFailedEvent for external API usage
-    Sonar.get().getEventManager().publish(new UserVerifyFailedEvent(this, reason));
-
-    // Make sure old entries are removed
-    PREVIOUS_FAILS.cleanUp();
-
-    // Check if the player has too many failed attempts
-    if (PREVIOUS_FAILS.has(getInetAddress().toString())) {
-      // Call the BotBlacklistedEvent for external API usage
-      Sonar.get().getEventManager().publish(new UserBlacklistedEvent(this));
-
-      getFallback().getBlacklisted().put(getInetAddress());
-      getFallback().getLogger().info(Sonar.get().getConfig().getVerification().getBlacklistLog()
-        .replace("%ip%", Sonar.get().getConfig().formatAddress(getInetAddress()))
-        .replace("%protocol%", String.valueOf(getProtocolVersion().getProtocol())));
-    } else {
-      // Cache the InetAddress for 3 minutes
-      PREVIOUS_FAILS.put(getInetAddress().toString());
-    }
-  }
+  void fail(final @NotNull String reason);
 }

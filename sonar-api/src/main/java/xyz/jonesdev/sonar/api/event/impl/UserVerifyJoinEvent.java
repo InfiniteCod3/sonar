@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Sonar Contributors
+ * Copyright (C) 2023-2024 Sonar Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,5 +30,5 @@ import xyz.jonesdev.sonar.api.fallback.FallbackUser;
 @RequiredArgsConstructor
 public final class UserVerifyJoinEvent implements SonarEvent {
   private final String username;
-  private final FallbackUser<?, ?> user;
+  private final FallbackUser user;
 }
